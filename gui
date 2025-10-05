@@ -710,7 +710,6 @@ createTab = function(self, opt)
                   current = res; paintSummary(); if o.Callback then pcall(o.Callback, res) end
                 else
                   current = choice; paintSummary(); if o.Callback then pcall(o.Callback, choice) end
-                  overlay:Destroy()
                 end
               end)
             end
