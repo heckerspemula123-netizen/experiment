@@ -1,20 +1,8 @@
 --[[
-  TongkolUI (OceanFresh) — cleaned & modular
-  Original feature set preserved; now with:
-  - Single-instance guard (prevents duplicate ScreenGui)
-  - Connection janitor (no lingering UserInput connections)
-  - Public Destroy() & optional ToggleKeybind()
-  - Clear structure & consistent naming
-  - Minor UX polish, same visuals
-
-  Usage (same as before):
-
-    local UI = UILib:CreateWindow({ Title = "Tongkol Hub" })
-    local tab = UI:CreateTab({ Name = "Main" })
-    tab:CreateSectionFold({ Title = "General" })
-    tab:Toggle({ Name = "AutoFarm", Default = false, Callback = function(on) print(on) end })
-    -- ...
-
+  TongkolUI (OceanFresh) — cleaned & modular (edited per request)
+  Changes:
+  - Dropdown single-selection: manual close (no auto-close) + refresh highlight via rebuild()
+  - Slider: event connections bound to janitor to avoid leaks
 ]]
 
 local Players = game:GetService("Players")
@@ -142,7 +130,6 @@ function UIClass:Destroy()
 end
 
 function UIClass:SetTheme(theme)
-  -- shallow-merge
   for k, v in pairs(theme or {}) do
     self.T[k] = v
   end
@@ -173,7 +160,6 @@ UILib.__index = UILib
 function UILib:CreateWindow(cfg)
   cfg = cfg or {}
 
-  -- anti-duplication: destroy existing
   local old = PG:FindFirstChild("TongkolUI")
   if old then old:Destroy() end
 
@@ -191,7 +177,6 @@ function UILib:CreateWindow(cfg)
   local T = self.T
   local TOP, SBW = 44, 168
 
-  -- Root GUI
   local gui = New("ScreenGui", {
     Name = "TongkolUI", ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Global
   }, PG)
@@ -207,7 +192,6 @@ function UILib:CreateWindow(cfg)
   New("UICorner", { CornerRadius = UDim.new(0, 12) }, main)
   New("UIStroke", { Color = T.stroke, Thickness = 1, Transparency = 0.25 }, main)
 
-  -- Top bar
   local top = New("Frame", {
     Size = UDim2.new(1, 0, 0, TOP),
     BackgroundColor3 = T.bg2,
@@ -226,7 +210,6 @@ function UILib:CreateWindow(cfg)
     TextColor3 = T.text,
   }, top)
 
-  -- Topbar buttons
   local CloseBtn = New("TextButton", { Size = UDim2.new(0, 28, 0, 28), Position = UDim2.new(1, -34, 0.5, -14), Text = "", BackgroundTransparency = 1, AutoButtonColor = false }, top)
   local RollBtn  = New("TextButton", { Size = UDim2.new(0, 28, 0, 28), Position = UDim2.new(1, -66, 0.5, -14), Text = "", BackgroundTransparency = 1, AutoButtonColor = false }, top)
   local MinBtn   = New("TextButton", { Size = UDim2.new(0, 28, 0, 28), Position = UDim2.new(1, -98, 0.5, -14), Text = "", BackgroundTransparency = 1, AutoButtonColor = false }, top)
@@ -235,7 +218,6 @@ function UILib:CreateWindow(cfg)
   local rollBox, rollFill = IconRoll(RollBtn, T.text)
   IconMinus(MinBtn, T.text, 2)
 
-  -- Layout
   local sidebar = New("Frame", { Position = UDim2.new(0, 0, 0, TOP), Size = UDim2.new(0, SBW, 1, -TOP), BackgroundColor3 = T.bg2 }, main)
   New("UIListLayout", { Padding = UDim.new(0, 8) }, sidebar)
   New("UIPadding", { PaddingTop = UDim.new(0, 8), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, sidebar)
@@ -243,11 +225,9 @@ function UILib:CreateWindow(cfg)
   local content = New("Frame", { Position = UDim2.new(0, SBW, 0, TOP), Size = UDim2.new(1, -SBW, 1, -TOP), BackgroundColor3 = T.bg1 }, main)
   local pages = New("Folder", { Name = "Pages" }, content)
 
-  -- Expose members
   self._gui, self._pages, self._sidebar, self._activeTab = gui, pages, sidebar, nil
   self.Log = function(...) print("[Tongkol]", ...) end
 
-  -- Mini Dock
   local Dock = New("TextButton", {
     Name = "TongkolDock",
     Visible = false,
@@ -264,7 +244,6 @@ function UILib:CreateWindow(cfg)
   New("UICorner", { CornerRadius = UDim.new(0, 12) }, Dock)
   New("UIStroke", { Color = T.stroke, Thickness = 1, Transparency = 0.25 }, Dock)
 
-  -- Dock dragging (tracked connections)
   do
     local dragging, startInputPos, startDockPos
 
@@ -287,7 +266,6 @@ function UILib:CreateWindow(cfg)
     end))
   end
 
-  -- Minimize / Restore
   self:_bind(MinBtn.Activated:Connect(function()
     main.Visible = false
     Dock.Visible = true
@@ -297,7 +275,6 @@ function UILib:CreateWindow(cfg)
     Dock.Visible = false
   end))
 
-  -- Roll-up
   local rolled = false
   local savedSize, savedPos = main.Size, main.Position
   local function setRolled(on)
@@ -315,10 +292,8 @@ function UILib:CreateWindow(cfg)
   end
   self:_bind(RollBtn.Activated:Connect(function() setRolled(not rolled) end))
 
-  -- Close (use public Destroy for cleanup)
   self:_bind(CloseBtn.Activated:Connect(function() self:Destroy() end))
 
-  -- Drag the window by top bar
   do
     local dragging, startPos, startMain
     self:_bind(top.InputBegan:Connect(function(i)
@@ -340,7 +315,6 @@ function UILib:CreateWindow(cfg)
     end))
   end
 
-  -- Sidebar/Pages API
   function self:CreateTab(opt)
     return createTab(self, opt)
   end
@@ -394,7 +368,6 @@ createTab = function(self, opt)
   btn.Activated:Connect(activate)
   if not self._activeTab then activate() end
 
-  -- ----- FOLD ----- --
   function TAB:CreateSectionFold(o)
     o = o or {}
     local title = o.Title or o.Name or o[1] or "Section"
@@ -577,20 +550,20 @@ createTab = function(self, opt)
         end
       end
 
-      track.InputBegan:Connect(function(i)
+      TAB._ui:_bind(track.InputBegan:Connect(function(i)
         if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
           dragging = true
           setFromX(i.Position.X)
-          i.Changed:Connect(function()
+          TAB._ui:_bind(i.Changed:Connect(function()
             if i.UserInputState == Enum.UserInputState.End then dragging = false end
-          end)
+          end))
         end
-      end)
-      UserInputService.InputChanged:Connect(function(i)
+      end))
+      TAB._ui:_bind(UserInputService.InputChanged:Connect(function(i)
         if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
           setFromX(i.Position.X)
         end
-      end)
+      end))
 
       attach(row)
       return {
@@ -710,7 +683,7 @@ createTab = function(self, opt)
                   current = res; paintSummary(); if o.Callback then pcall(o.Callback, res) end
                 else
                   current = choice; paintSummary(); if o.Callback then pcall(o.Callback, choice) end
-                  rebuild()
+                  rebuild() -- refresh highlight while keeping popup open
                 end
               end)
             end
@@ -737,7 +710,6 @@ createTab = function(self, opt)
     return F
   end
 
-  -- Tab-level shorthand that auto-creates a fold if missing
   local function ensureFold()
     if not TAB._activeFold then TAB:CreateSectionFold({ Title = "Section" }) end
     return TAB._activeFold
@@ -756,5 +728,4 @@ createTab = function(self, opt)
   return TAB
 end
 
--- Return public module/table (compat with existing scripts)
 return UILib
